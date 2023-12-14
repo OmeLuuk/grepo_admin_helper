@@ -37,6 +37,10 @@ const unitPopulationCosts = {
 
 const popup = document.createElement('div');
 
+let isPopupFolded = false;
+let originalPopupHeight = '90vh'; // Default height
+let currentMinAttacks = 3; // Default filter value
+
 let firstRow = true;
 
 let spamSummary = {}; // Outer dictionary keyed on date
@@ -78,8 +82,8 @@ if (window.location.href.includes("grepolis.com/admin/commands")) {
     console.log("Loading table number", attackTableIndex);
     if (tables.length > 1) {
         let table = tables[attackTableIndex]; // Select the targeted table
-        let spamSummary = processTable(table);
-        displayPopup(spamSummary); // Pass the spam summary
+        let data = processTable(table);
+        managePopupDisplay(data);
     }
 }
 
@@ -87,6 +91,8 @@ if (window.location.href.includes("grepolis.com/admin/commands")) {
 function processTable(table) {
     let rows = table.rows;
     let spamSummary = {};
+    let totalAttacks = 0;
+    let totalArrivedAttacks = 0;
 
     for (let i = 1; i < rows.length; i += 2) { // Skipping empty rows and header
         let cells = rows[i].cells;
@@ -122,14 +128,26 @@ function processTable(table) {
         for (let player in spamSummary[date]) {
             let summary = spamSummary[date][player];
             if (summary.arrivedAttacks > 0) {
-                summary.averagePopulationArrivedAttacks /= summary.arrivedAttacks;
+                summary.averagePopulationArrivedAttacks = Math.round(summary.averagePopulationArrivedAttacks / summary.arrivedAttacks);
             }
             summary.hoursArrived = Array.from(summary.hoursArrived);
             summary.hoursNotArrived = Array.from(summary.hoursNotArrived);
         }
     }
 
-    return spamSummary;
+    for (let date in spamSummary) {
+        for (let player in spamSummary[date]) {
+            let summary = spamSummary[date][player];
+            totalAttacks += summary.arrivedAttacks + summary.nonArrivedAttacks;
+            totalArrivedAttacks += summary.arrivedAttacks;
+        }
+    }
+
+    return {
+        spamSummary: spamSummary,
+        totalAttacks: totalAttacks,
+        totalArrivedAttacks: totalArrivedAttacks
+    };
 }
 
 function calculatePopulation(detailRow) {
@@ -170,7 +188,15 @@ function calculatePopulation(detailRow) {
     return totalPopulation;
 }
 
-function displayPopup(summary) {
+function applyFilter(data) {
+    displayPopup(data);
+}
+
+function displayPopup(data) {
+    let spamSummary = data.spamSummary;
+    let totalAttacks = data.totalAttacks;
+    let totalArrivedAttacks = data.totalArrivedAttacks;
+
     popup.textContent = ''; // Clear existing content
     popup.style.position = 'fixed';
     popup.style.top = '10px'; // Top margin
@@ -183,7 +209,46 @@ function displayPopup(summary) {
     popup.style.maxHeight = '90vh'; // Maximum height (90% of the viewport height)
     popup.style.width = 'auto'; // Width can be adjusted as needed
 
-    for (let date in summary) {
+    let foldButton = document.createElement('button');
+    foldButton.textContent = 'Fold';
+    foldButton.onclick = () => togglePopup(data);
+    foldButton.style.position = 'absolute';
+    foldButton.style.top = '10px';
+    foldButton.style.right = '10px';
+    popup.appendChild(foldButton);
+
+    // Display total summary
+    let summaryDiv = document.createElement('div');
+    summaryDiv.textContent = `Total Attacks: ${totalAttacks}, Total Arrived Attacks: ${totalArrivedAttacks}`;
+    summaryDiv.style.padding = '10px';
+    summaryDiv.style.backgroundColor = '#f0f0f0';
+    summaryDiv.style.marginBottom = '10px';
+    popup.appendChild(summaryDiv);
+
+    let filterDiv = document.createElement('div');
+    let filterLabel = document.createElement('span');
+    filterLabel.textContent = 'Minimum number of attacks to display: ';
+    filterLabel.style.marginRight = '10px';
+
+    let filterInput = document.createElement('input');
+    filterInput.type = 'number';
+    filterInput.value = currentMinAttacks; // Use global filter value
+    filterInput.style.margin = '10px';
+    filterInput.placeholder = 'Enter number';
+
+    let filterButton = document.createElement('button');
+    filterButton.textContent = 'Apply Filter';
+    filterButton.onclick = () => {
+        currentMinAttacks = parseInt(filterInput.value) || 0; // Update global filter value
+        applyFilter(data);
+    };
+
+    filterDiv.appendChild(filterLabel);
+    filterDiv.appendChild(filterInput);
+    filterDiv.appendChild(filterButton);
+    popup.appendChild(filterDiv);
+
+    for (let date in spamSummary) {
         let dateHeader = document.createElement('h3');
         dateHeader.textContent = `Date: ${date}`;
         popup.appendChild(dateHeader);
@@ -211,8 +276,15 @@ function displayPopup(summary) {
         table.appendChild(tbody);
 
         // Add data rows
-        for (let player in summary[date]) {
-            let attackData = summary[date][player];
+        for (let player in spamSummary[date]) {
+            let attackData = spamSummary[date][player];
+            let totalAttacks = attackData.arrivedAttacks + attackData.nonArrivedAttacks;
+
+            // Skip rows that don't meet the filter criteria
+            if (totalAttacks < currentMinAttacks) {
+                continue; // Skip to the next iteration
+            }
+
             let row = document.createElement('tr');
             tbody.appendChild(row);
 
@@ -228,7 +300,7 @@ function displayPopup(summary) {
 
             // Avg. Pop. Arrived
             let avgPopCell = document.createElement('td');
-            avgPopCell.textContent = attackData.averagePopulationArrivedAttacks.toFixed(2);
+            avgPopCell.textContent = Math.round(attackData.averagePopulationArrivedAttacks);
             row.appendChild(avgPopCell);
 
             // Non-Arrived Attacks
@@ -249,6 +321,33 @@ function displayPopup(summary) {
     }
 }
 
+function togglePopup(data) {
+    if (isPopupFolded) {
+        // Restore the original height when unfolding
+        popup.style.height = originalPopupHeight;
+    } else {
+        // Store the current height before folding
+        originalPopupHeight = popup.style.height;
+        popup.style.height = '50px';
+    }
+    isPopupFolded = !isPopupFolded;
+    managePopupDisplay(data);
+}
 
+function managePopupDisplay(data) {
+    if (isPopupFolded) {
+        // Minimize the popup
+        popup.textContent = '';
+        popup.style.width = '50px';
+        popup.style.overflowY = 'hidden';
 
+        let unfoldButton = document.createElement('button');
+        unfoldButton.textContent = 'Unfold';
+        unfoldButton.onclick = () => togglePopup(data);
+        popup.appendChild(unfoldButton);
+    } else {
+        // Display full content without changing the height
+        displayPopup(data);
+    }
+}
 
