@@ -38,6 +38,7 @@ const unitPopulationCosts = {
 const popup = document.createElement('div');
 
 let isPopupFolded = false;
+let showCityDetails = false; // Initially set to false to hide city details
 let originalPopupHeight = '90vh'; // Default height
 let currentMinAttacks = 3; // Default filter value
 
@@ -45,16 +46,22 @@ let firstRow = true;
 
 let spamSummary = {}; // Outer dictionary keyed on date
 
-function createAttackSummary() {
+function createDetails() {
     return {
         arrivedAttacks: 0,
         averagePopulationArrivedAttacks: 0,
         nonArrivedAttacks: 0,
-        hoursArrived: new Set(), // Using Set instead of Array
-        hoursNotArrived: new Set() // Using Set instead of Array
+        hoursArrived: new Set(),
+        hoursNotArrived: new Set()
     };
 }
 
+function createPlayerSummary() {
+    return {
+        details: createDetails(),
+        cities: new Map()
+    };
+}
     
 if (window.location.href.includes("grepolis.com/admin/commands")) {
     popup.style.position = 'fixed';
@@ -98,48 +105,41 @@ function processTable(table) {
         let cells = rows[i].cells;
 
         if (cells[1].textContent.trim().toLowerCase().startsWith("attack")) {
-            let date = cells[8].textContent.trim().split(' ')[0]; // Extract date from Arrival
+            let date = cells[8].textContent.trim().split(' ')[0];
             let toPlayer = cells[5].textContent.trim();
+            let toCity = cells[6].textContent.trim(); // Second 'Town' column
             let arrived = cells[13].textContent.trim() === "Yes";
             let population = calculatePopulation(rows[i + 1]);
-            let hour = parseInt(cells[8].textContent.trim().split(' ')[1].split(':')[0]); // Extract hour from Arrival
+            let hour = parseInt(cells[8].textContent.trim().split(' ')[1].split(':')[0]);
 
             if (!spamSummary[date]) {
                 spamSummary[date] = {};
             }
             if (!spamSummary[date][toPlayer]) {
-                spamSummary[date][toPlayer] = createAttackSummary();
+                spamSummary[date][toPlayer] = createPlayerSummary();
             }
 
-            let summary = spamSummary[date][toPlayer];
-            if (arrived) {
-                summary.arrivedAttacks++;
-                summary.averagePopulationArrivedAttacks += population; // Will be divided by count later
-                summary.hoursArrived.add(hour); // Using Set to avoid duplicates
-            } else {
-                summary.nonArrivedAttacks++;
-                summary.hoursNotArrived.add(hour); // Using Set to avoid duplicates
+            let playerSummary = spamSummary[date][toPlayer];
+            updateDetails(playerSummary.details, arrived, population, hour);
+
+            if (!playerSummary.cities.has(toCity)) {
+                playerSummary.cities.set(toCity, createDetails());
             }
+            let citySummary = playerSummary.cities.get(toCity);
+            updateDetails(citySummary, arrived, population, hour);
+
+            // Counting total attacks
+            totalAttacks++;
+            if (arrived) totalArrivedAttacks++;
         }
     }
 
-    // Calculate average population for arrived attacks and convert Sets to Arrays
+    // Finalize details for players and cities
     for (let date in spamSummary) {
         for (let player in spamSummary[date]) {
-            let summary = spamSummary[date][player];
-            if (summary.arrivedAttacks > 0) {
-                summary.averagePopulationArrivedAttacks = Math.round(summary.averagePopulationArrivedAttacks / summary.arrivedAttacks);
-            }
-            summary.hoursArrived = Array.from(summary.hoursArrived);
-            summary.hoursNotArrived = Array.from(summary.hoursNotArrived);
-        }
-    }
-
-    for (let date in spamSummary) {
-        for (let player in spamSummary[date]) {
-            let summary = spamSummary[date][player];
-            totalAttacks += summary.arrivedAttacks + summary.nonArrivedAttacks;
-            totalArrivedAttacks += summary.arrivedAttacks;
+            let playerSummary = spamSummary[date][player];
+            finalizeDetails(playerSummary.details);
+            playerSummary.cities.forEach(citySummary => finalizeDetails(citySummary));
         }
     }
 
@@ -148,6 +148,26 @@ function processTable(table) {
         totalAttacks: totalAttacks,
         totalArrivedAttacks: totalArrivedAttacks
     };
+}
+
+function updateDetails(details, arrived, population, hour) {
+    if (arrived) {
+        details.arrivedAttacks++;
+        details.averagePopulationArrivedAttacks += population;
+        details.hoursArrived.add(hour);
+    } else {
+        details.nonArrivedAttacks++;
+        details.hoursNotArrived.add(hour);
+    }
+}
+
+function finalizeDetails(details) {
+    if (details.arrivedAttacks > 0) {
+        details.averagePopulationArrivedAttacks /= details.arrivedAttacks;
+    }
+    details.averagePopulationArrivedAttacks = Math.round(details.averagePopulationArrivedAttacks);
+    details.hoursArrived = Array.from(details.hoursArrived);
+    details.hoursNotArrived = Array.from(details.hoursNotArrived);
 }
 
 function calculatePopulation(detailRow) {
@@ -194,8 +214,6 @@ function applyFilter(data) {
 
 function displayPopup(data) {
     let spamSummary = data.spamSummary;
-    let totalAttacks = data.totalAttacks;
-    let totalArrivedAttacks = data.totalArrivedAttacks;
 
     popup.textContent = ''; // Clear existing content
     popup.style.position = 'fixed';
@@ -209,22 +227,80 @@ function displayPopup(data) {
     popup.style.maxHeight = '90vh'; // Maximum height (90% of the viewport height)
     popup.style.width = 'auto'; // Width can be adjusted as needed
 
+    let cityToggleButton = createCityToggleButton(data);
+    popup.appendChild(cityToggleButton);
+
+    let foldButton = createFoldButton(data);
+    popup.appendChild(foldButton);
+
+    let summaryDiv = createSummaryDiv(data);
+    popup.appendChild(summaryDiv);
+
+    let filterDiv = createFilterDiv(data);
+    popup.appendChild(filterDiv);
+
+    for (let date in spamSummary) {
+        let dateHeader = createDateHeader(date);
+        popup.appendChild(dateHeader);
+
+        let table = createTable();
+        popup.appendChild(table);
+
+        let tbody = document.createElement('tbody');
+        table.appendChild(tbody);
+
+        for (let player in spamSummary[date]) {
+            let playerData = spamSummary[date][player];
+            let totalAttacks = playerData.details.arrivedAttacks + playerData.details.nonArrivedAttacks;
+
+            if (totalAttacks >= currentMinAttacks) {
+                let playerRow = createPlayerRow(player, playerData.details);
+                tbody.appendChild(playerRow);
+
+                if (showCityDetails) {
+                    playerData.cities.forEach((cityDetails, cityName) => {
+                        let cityRow = createCityRow(cityName, cityDetails);
+                        tbody.appendChild(cityRow);
+                    });
+
+                    let separatorRow = createEmptyRow();
+                    tbody.appendChild(separatorRow);
+                }
+            }
+        }
+    }
+}
+
+function createCityToggleButton(data) {
+    let cityToggleButton = document.createElement('button');
+    cityToggleButton.textContent = showCityDetails ? 'Hide City Details' : 'Show City Details';
+    cityToggleButton.onclick = function() {
+        showCityDetails = !showCityDetails;
+        displayPopup(data); // Redraw popup with updated city details visibility
+    };
+    return cityToggleButton;
+}
+
+function createFoldButton(data) {
     let foldButton = document.createElement('button');
     foldButton.textContent = 'Fold';
     foldButton.onclick = () => togglePopup(data);
     foldButton.style.position = 'absolute';
     foldButton.style.top = '10px';
     foldButton.style.right = '10px';
-    popup.appendChild(foldButton);
+    return foldButton;
+}
 
-    // Display total summary
+function createSummaryDiv(data) {
     let summaryDiv = document.createElement('div');
-    summaryDiv.textContent = `Total Attacks: ${totalAttacks}, Total Arrived Attacks: ${totalArrivedAttacks}`;
+    summaryDiv.textContent = `Total Attacks: ${data.totalAttacks}, Total Arrived Attacks: ${data.totalArrivedAttacks}`;
     summaryDiv.style.padding = '10px';
     summaryDiv.style.backgroundColor = '#f0f0f0';
     summaryDiv.style.marginBottom = '10px';
-    popup.appendChild(summaryDiv);
+    return summaryDiv;
+}
 
+function createFilterDiv(data) {
     let filterDiv = document.createElement('div');
     let filterLabel = document.createElement('span');
     filterLabel.textContent = 'Minimum number of attacks to display: ';
@@ -232,94 +308,124 @@ function displayPopup(data) {
 
     let filterInput = document.createElement('input');
     filterInput.type = 'number';
-    filterInput.value = currentMinAttacks; // Use global filter value
+    filterInput.value = currentMinAttacks;
     filterInput.style.margin = '10px';
     filterInput.placeholder = 'Enter number';
 
     let filterButton = document.createElement('button');
     filterButton.textContent = 'Apply Filter';
     filterButton.onclick = () => {
-        currentMinAttacks = parseInt(filterInput.value) || 0; // Update global filter value
+        currentMinAttacks = parseInt(filterInput.value) || 0;
         applyFilter(data);
     };
 
     filterDiv.appendChild(filterLabel);
     filterDiv.appendChild(filterInput);
     filterDiv.appendChild(filterButton);
-    popup.appendChild(filterDiv);
-
-    for (let date in spamSummary) {
-        let dateHeader = document.createElement('h3');
-        dateHeader.textContent = `Date: ${date}`;
-        popup.appendChild(dateHeader);
-
-        let table = document.createElement('table');
-        table.style.borderCollapse = 'collapse';
-        table.style.width = '100%';
-        popup.appendChild(table);
-
-        // Create table header
-        let thead = document.createElement('thead');
-        table.appendChild(thead);
-        let headerRow = document.createElement('tr');
-        thead.appendChild(headerRow);
-        ['Player', 'Arrived Attacks', 'Avg. Pop. Arrived', 'Non-Arrived Attacks', 'Hours Arrived', 'Hours Not Arrived'].forEach(headerText => {
-            let header = document.createElement('th');
-            header.textContent = headerText;
-            header.style.border = '1px solid black';
-            header.style.padding = '5px';
-            headerRow.appendChild(header);
-        });
-
-        // Create table body
-        let tbody = document.createElement('tbody');
-        table.appendChild(tbody);
-
-        // Add data rows
-        for (let player in spamSummary[date]) {
-            let attackData = spamSummary[date][player];
-            let totalAttacks = attackData.arrivedAttacks + attackData.nonArrivedAttacks;
-
-            // Skip rows that don't meet the filter criteria
-            if (totalAttacks < currentMinAttacks) {
-                continue; // Skip to the next iteration
-            }
-
-            let row = document.createElement('tr');
-            tbody.appendChild(row);
-
-            // Player
-            let playerCell = document.createElement('td');
-            playerCell.textContent = player;
-            row.appendChild(playerCell);
-
-            // Arrived Attacks
-            let arrivedCell = document.createElement('td');
-            arrivedCell.textContent = attackData.arrivedAttacks;
-            row.appendChild(arrivedCell);
-
-            // Avg. Pop. Arrived
-            let avgPopCell = document.createElement('td');
-            avgPopCell.textContent = Math.round(attackData.averagePopulationArrivedAttacks);
-            row.appendChild(avgPopCell);
-
-            // Non-Arrived Attacks
-            let nonArrivedCell = document.createElement('td');
-            nonArrivedCell.textContent = attackData.nonArrivedAttacks;
-            row.appendChild(nonArrivedCell);
-
-            // Hours Arrived
-            let hoursArrivedCell = document.createElement('td');
-            hoursArrivedCell.textContent = attackData.hoursArrived.join(', ');
-            row.appendChild(hoursArrivedCell);
-
-            // Hours Not Arrived
-            let hoursNotArrivedCell = document.createElement('td');
-            hoursNotArrivedCell.textContent = attackData.hoursNotArrived.join(', ');
-            row.appendChild(hoursNotArrivedCell);
-        }
-    }
+    return filterDiv;
 }
+
+
+function createDateHeader(date) {
+    let dateHeader = document.createElement('h3');
+    dateHeader.textContent = `Date: ${date}`;
+    return dateHeader;
+}
+
+function createTable() {
+    let table = document.createElement('table');
+    table.style.borderCollapse = 'collapse';
+    table.style.width = '100%';
+
+    let thead = document.createElement('thead');
+    table.appendChild(thead);
+    let headerRow = document.createElement('tr');
+    thead.appendChild(headerRow);
+    ['Player', 'Arrived Attacks', 'Avg. Pop. Arrived', 'Non-Arrived Attacks', 'Hours Arrived', 'Hours Not Arrived'].forEach(headerText => {
+        let header = document.createElement('th');
+        header.textContent = headerText;
+        header.style.border = '1px solid black';
+        header.style.padding = '5px';
+        headerRow.appendChild(header);
+    });
+
+    return table;
+}
+
+function createPlayerRow(player, details) {
+    let row = document.createElement('tr');
+
+    if (showCityDetails)
+        row.style.fontWeight = 'bold';
+
+    let playerCell = document.createElement('td');
+    playerCell.textContent = player;
+    row.appendChild(playerCell);
+
+    let arrivedCell = document.createElement('td');
+    arrivedCell.textContent = details.arrivedAttacks;
+    row.appendChild(arrivedCell);
+
+    let avgPopCell = document.createElement('td');
+    avgPopCell.textContent = Math.round(details.averagePopulationArrivedAttacks);
+    row.appendChild(avgPopCell);
+
+    let nonArrivedCell = document.createElement('td');
+    nonArrivedCell.textContent = details.nonArrivedAttacks;
+    row.appendChild(nonArrivedCell);
+
+    let hoursArrivedCell = document.createElement('td');
+    hoursArrivedCell.textContent = details.hoursArrived.join(', ');
+    row.appendChild(hoursArrivedCell);
+
+    let hoursNotArrivedCell = document.createElement('td');
+    hoursNotArrivedCell.textContent = details.hoursNotArrived.join(', ');
+    row.appendChild(hoursNotArrivedCell);
+
+    return row;
+}
+
+function createEmptyRow() {
+    let separatorRow = document.createElement('tr');
+    let separatorCell = document.createElement('td');
+    separatorCell.colSpan = "6"; // Span across all columns
+    separatorCell.style.height = '10px'; // Adjust height as needed
+    separatorRow.appendChild(separatorCell);
+    return separatorRow;
+}
+
+function createCityRow(cityName, cityDetails) {
+    let cityRow = document.createElement('tr');
+    cityRow.style.backgroundColor = '#e0e0e0'; // Light background to distinguish city rows
+
+    let cityCell = document.createElement('td');
+    cityCell.textContent = cityName;
+    cityRow.appendChild(cityCell);
+
+    let arrivedCell = document.createElement('td');
+    arrivedCell.textContent = cityDetails.arrivedAttacks;
+    cityRow.appendChild(arrivedCell);
+
+    let avgPopCell = document.createElement('td');
+    avgPopCell.textContent = Math.round(cityDetails.averagePopulationArrivedAttacks);
+    cityRow.appendChild(avgPopCell);
+
+    let nonArrivedCell = document.createElement('td');
+    nonArrivedCell.textContent = cityDetails.nonArrivedAttacks;
+    cityRow.appendChild(nonArrivedCell);
+
+    let hoursArrivedCell = document.createElement('td');
+    hoursArrivedCell.textContent = cityDetails.hoursArrived.join(', ');
+    cityRow.appendChild(hoursArrivedCell);
+
+    let hoursNotArrivedCell = document.createElement('td');
+    hoursNotArrivedCell.textContent = cityDetails.hoursNotArrived.join(', ');
+    cityRow.appendChild(hoursNotArrivedCell);
+
+    return cityRow;
+}
+
+
 
 function togglePopup(data) {
     if (isPopupFolded) {
