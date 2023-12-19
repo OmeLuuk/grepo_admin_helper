@@ -52,7 +52,9 @@ function createDetails() {
         averagePopulationArrivedAttacks: 0,
         nonArrivedAttacks: 0,
         hoursArrived: new Set(),
-        hoursNotArrived: new Set()
+        hoursNotArrived: new Set(),
+        totalTravelTime: 0,
+        averageTravelTime: 0 // in seconds
     };
 }
 
@@ -112,6 +114,12 @@ function processTable(table) {
             let population = calculatePopulation(rows[i + 1]);
             let hour = parseInt(cells[8].textContent.trim().split(' ')[1].split(':')[0]);
 
+            let start = cells[7].textContent.trim(); // Get Start time
+            let arrival = cells[8].textContent.trim(); // Get Arrival time
+            let travelTime = calculateTravelTime(start, arrival);
+
+            console.log("start: " + start + ", arrival: " + arrival + ", traveltime: " + travelTime);
+
             if (!spamSummary[date]) {
                 spamSummary[date] = {};
             }
@@ -119,14 +127,15 @@ function processTable(table) {
                 spamSummary[date][toPlayer] = createPlayerSummary();
             }
 
+            if (arrived) console.log("player: " + toPlayer);
             let playerSummary = spamSummary[date][toPlayer];
-            updateDetails(playerSummary.details, arrived, population, hour);
+            updateDetails(playerSummary.details, arrived, population, hour, travelTime);
 
             if (!playerSummary.cities.has(toCity)) {
                 playerSummary.cities.set(toCity, createDetails());
             }
             let citySummary = playerSummary.cities.get(toCity);
-            updateDetails(citySummary, arrived, population, hour);
+            updateDetails(citySummary, arrived, population, hour, travelTime);
 
             // Counting total attacks
             totalAttacks++;
@@ -150,11 +159,28 @@ function processTable(table) {
     };
 }
 
-function updateDetails(details, arrived, population, hour) {
+function calculateTravelTime(startStr, arrivalStr) {
+    function parseDate(dateStr) {
+        const [day, month, year, hour, minute, second] = dateStr.split(/[- :]/);
+        console.log("Date string: " + dateStr);
+        console.log("Parsed as: Year:", year, "Month:", month, "Day:", day, "Hour:", hour, "Minute:", minute, "Second:", second);
+        return new Date(year, month - 1, day, hour, minute, second);
+    }
+
+    let startTime = parseDate(startStr);
+    let arrivalTime = parseDate(arrivalStr);
+    let travelTime = (arrivalTime - startTime) / 1000; // Convert milliseconds to seconds
+    
+    return travelTime;
+}
+
+function updateDetails(details, arrived, population, hour, travelTime) {
     if (arrived) {
         details.arrivedAttacks++;
         details.averagePopulationArrivedAttacks += population;
         details.hoursArrived.add(hour);
+        details.totalTravelTime += travelTime; // Add travel time
+        console.log(`[Update] Arrived attack, Travel Time = ${formatTravelTime(travelTime)}, Total Travel Time = ${formatTravelTime(details.totalTravelTime)}`);
     } else {
         details.nonArrivedAttacks++;
         details.hoursNotArrived.add(hour);
@@ -164,10 +190,22 @@ function updateDetails(details, arrived, population, hour) {
 function finalizeDetails(details) {
     if (details.arrivedAttacks > 0) {
         details.averagePopulationArrivedAttacks /= details.arrivedAttacks;
+        details.averageTravelTime = details.totalTravelTime / details.arrivedAttacks;
+        console.log(`[Finalize] Arrived Attacks = ${details.arrivedAttacks}, Total Travel Time = ${formatTravelTime(details.totalTravelTime)}, Average Travel Time = ${formatTravelTime(details.averageTravelTime)}`);
     }
     details.averagePopulationArrivedAttacks = Math.round(details.averagePopulationArrivedAttacks);
     details.hoursArrived = Array.from(details.hoursArrived);
     details.hoursNotArrived = Array.from(details.hoursNotArrived);
+}
+
+function formatTravelTime(seconds) {
+    if (!Number.isFinite(seconds) || seconds < 0) {
+        return '00:00:00';
+    }
+
+    let date = new Date(0);
+    date.setSeconds(seconds);
+    return date.toISOString().substr(11, 8);
 }
 
 function calculatePopulation(detailRow) {
@@ -341,7 +379,7 @@ function createTable() {
     table.appendChild(thead);
     let headerRow = document.createElement('tr');
     thead.appendChild(headerRow);
-    ['Player', 'Arrived Attacks', 'Avg. Pop. Arrived', 'Non-Arrived Attacks', 'Hours Arrived', 'Hours Not Arrived'].forEach(headerText => {
+    ['Player', 'Arrived Attacks', 'Avg. Pop. Arrived', 'Non-Arrived Attacks', 'Hours Arrived', 'Hours Not Arrived', 'Avg. Travel Time'].forEach(headerText => {
         let header = document.createElement('th');
         header.textContent = headerText;
         header.style.border = '1px solid black';
@@ -382,13 +420,17 @@ function createPlayerRow(player, details) {
     hoursNotArrivedCell.textContent = details.hoursNotArrived.join(', ');
     row.appendChild(hoursNotArrivedCell);
 
+    let travelTimeCell = document.createElement('td');
+    travelTimeCell.textContent = formatTravelTime(details.averageTravelTime);
+    row.appendChild(travelTimeCell);
+
     return row;
 }
 
 function createEmptyRow() {
     let separatorRow = document.createElement('tr');
     let separatorCell = document.createElement('td');
-    separatorCell.colSpan = "6"; // Span across all columns
+    separatorCell.colSpan = "7"; // Span across all columns
     separatorCell.style.height = '10px'; // Adjust height as needed
     separatorRow.appendChild(separatorCell);
     return separatorRow;
@@ -421,6 +463,10 @@ function createCityRow(cityName, cityDetails) {
     let hoursNotArrivedCell = document.createElement('td');
     hoursNotArrivedCell.textContent = cityDetails.hoursNotArrived.join(', ');
     cityRow.appendChild(hoursNotArrivedCell);
+
+    let travelTimeCell = document.createElement('td');
+    travelTimeCell.textContent = formatTravelTime(cityDetails.averageTravelTime);
+    cityRow.appendChild(travelTimeCell);
 
     return cityRow;
 }
