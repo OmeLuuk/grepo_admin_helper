@@ -16,6 +16,7 @@ This script is designed for analyzing attack logs in the Grepolis game, particul
 - **Takeover Attempt Identification**: Highlights rows where takeover attempts have occurred.
 - **Interactive UI**: Provides a user-friendly popup interface within the game environment, complete with folding and filter options.
 - **City Details**: Offers an option to view detailed attack information on a city-by-city basis.
+- **Player Data Copy Functionality**: Includes a feature to copy a player's attack log data to the clipboard for easy reporting and documentation.
 
 ## Installation
 
@@ -25,7 +26,7 @@ This script is designed for analyzing attack logs in the Grepolis game, particul
 
 ## Usage
 
-Once installed, the script automatically activates on the relevant Grepolis admin pages. It analyzes the attack logs and displays a popup interface with summarized data and various interactive options.
+Once installed, the script automatically activates on the relevant Grepolis admin pages. It analyzes the attack logs and displays a popup interface with summarized data and various interactive options. The script can only see the contents of the page that has been loaded, it does not request more information or store anything locally nor remotely. For player with large command logs (>1000 rows), some dates may be clipped from the commands page and will therefore also not be picked up by the script. In such cases, adjust your filters to check for multiple dates.
 
 ## Customization
 
@@ -33,7 +34,7 @@ The script can be customized to suit specific administrative needs. Modify the c
 
 ## Disclaimer
 
-This script is developed for administrative use within the Grepolis game. Ensure compliance with the game's terms and policies when using or modifying this script.
+This script is developed for administrative use within the Grepolis game. Ensure compliance with the game's terms and policies when using or modifying this script. 
 
 ## Author
 

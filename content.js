@@ -41,6 +41,7 @@ let isPopupFolded = false;
 let showCityDetails = false; // Initially set to false to hide city details
 let originalPopupHeight = '90vh'; // Default height
 let currentMinAttacks = 3; // Default filter value
+let currentPlayer = "";
 
 let firstRow = true;
 
@@ -103,6 +104,7 @@ function processTable(table) {
     let spamSummary = {};
     let totalAttacks = 0;
     let totalArrivedAttacks = 0;
+    currentPlayer = rows[1].cells[3].textContent.trim();
 
     for (let i = 1; i < rows.length; i += 2) { // Skipping empty rows and header
         let cells = rows[i].cells;
@@ -293,7 +295,7 @@ function displayPopup(data) {
             let totalAttacks = playerData.details.arrivedAttacks + playerData.details.nonArrivedAttacks;
 
             if (totalAttacks >= currentMinAttacks) {
-                let playerRow = createPlayerRow(player, playerData.details);
+                let playerRow = createPlayerRow(player, playerData.details, data);
                 tbody.appendChild(playerRow);
 
                 if (showCityDetails) {
@@ -391,7 +393,7 @@ function createTable() {
     return table;
 }
 
-function createPlayerRow(player, details) {
+function createPlayerRow(player, details, data) {
     let row = document.createElement('tr');
 
     if (showCityDetails)
@@ -403,6 +405,14 @@ function createPlayerRow(player, details) {
     let playerCell = document.createElement('td');
     playerCell.textContent = player;
     row.appendChild(playerCell);
+
+    let copyIcon = document.createElement('span');
+    copyIcon.textContent = '📋';
+    copyIcon.style.cursor = 'pointer';
+    copyIcon.style.opacity = '0.5';
+    copyIcon.onclick = () => copyPlayerDataToClipboard(player, data);
+    playerCell.appendChild(copyIcon);
+
 
     let arrivedCell = document.createElement('td');
     arrivedCell.textContent = details.arrivedAttacks;
@@ -430,6 +440,30 @@ function createPlayerRow(player, details) {
 
     return row;
 }
+
+function copyPlayerDataToClipboard(player, data) {
+    let spamSummary = data.spamSummary;
+    let dates = Object.keys(spamSummary);
+    let startDate = dates[0];
+    let endDate = dates[dates.length - 1];
+    let copiedText = `Analyzed attack dates from ${startDate} to ${endDate} from ${currentPlayer} to ${player}\n\n`;
+
+    dates.forEach(date => {
+        if (spamSummary[date][player]) {
+            let playerData = spamSummary[date][player].details;
+            copiedText += `${date}\n`;
+            copiedText += `${playerData.arrivedAttacks} attacks with average population of ${Math.round(playerData.averagePopulationArrivedAttacks)} and average travel time ${formatTravelTime(playerData.averageTravelTime)} at hours ${Array.from(playerData.hoursArrived).join(', ')}\n`;
+            copiedText += `${playerData.nonArrivedAttacks} non-arrived attacks at hours ${Array.from(playerData.hoursNotArrived).join(', ')}\n\n`;
+        }
+    });
+
+    navigator.clipboard.writeText(copiedText).then(() => {
+    }, (err) => {
+        console.error('Could not copy text: ', err);
+    });
+}
+
+
 
 function createEmptyRow() {
     let separatorRow = document.createElement('tr');
